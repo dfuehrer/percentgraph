@@ -2,6 +2,7 @@
 #include <fstream>
 #include <string>
 #include <locale>
+#include <filesystem>
 
 int main(const int argc, const char * const argv[]){
     std::locale::global(std::locale(""));
@@ -13,6 +14,9 @@ int main(const int argc, const char * const argv[]){
     }
     const char * finName = argv[1];
     const char * foutName = argv[2];
+    if(!std::filesystem::exists(foutName)){
+        return 2;
+    }
     std::ofstream fout(foutName);
     //std::wcout << L"just opened " << foutName << '\n';
     std::wifstream fin(finName);

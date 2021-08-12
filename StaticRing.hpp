@@ -1,3 +1,6 @@
+#ifndef STATIC_RING_HPP
+#define STATIC_RING_HPP
+
 #include <array>
 
 template <typename T>
@@ -5,6 +8,58 @@ struct ListType{
     T data;
     ListType * next;
     ListType * prev;
+};
+
+template <typename T>
+struct ListIterator{
+    typedef ListType<T>     Node_t;
+    typedef ListIterator<T> Iterator_t;
+
+    ListIterator(bool ih=false): node(), isHead(ih) {}
+    explicit ListIterator(Node_t * n, bool ih=false): node(n), isHead(ih) {}
+
+    T & operator*() const {
+        return node->data;
+    }
+    T * operator->() const {
+        return &node->data;
+    }
+
+    Iterator_t & operator++(){
+        node = node->next;
+        isHead = false;
+        return *this;
+    }
+    Iterator_t operator++(int){
+        Iterator_t tmp = *this;
+        node = node->next;
+        isHead = false;
+        return tmp;
+    }
+    Iterator_t & operator--(){
+        node = node->prev;
+        isHead = false;
+        return *this;
+    }
+    Iterator_t operator--(int){
+        Iterator_t tmp = *this;
+        node = node->prev;
+        isHead = false;
+        return tmp;
+    }
+
+    friend bool operator==(const Iterator_t & left, const Iterator_t & right){
+        return (left.node == right.node) && (left.isHead == right.isHead);
+    }
+    friend bool operator!=(const Iterator_t & left, const Iterator_t & right){
+        //return (left.node != right.node) || (left.isHead != right.isHead);
+        return !(left == right);
+    }
+
+    Node_t * node;
+
+    private:
+    bool isHead;
 };
 
 //template <typename T, std::size_t N>
@@ -66,6 +121,9 @@ struct ListType{
 template <typename T, std::size_t N>
 class StaticRing{
 public:
+    typedef ListType<T> Node_t;
+    typedef ListIterator<T> Iterator_t;
+
     StaticRing(): head(dataarray.data()){
         for(int i = 0; i < N-1; ++i){
             dataarray[i].next = &dataarray[i+1];
@@ -77,7 +135,7 @@ public:
         dataarray[N-1].next = head;
         head->prev = &dataarray[N-1];
     }
-    //StaticRing(std::array<ListType<T>, N> data): head(dataarray->data){
+    //StaticRing(std::array<Node_t, N> data): head(dataarray->data){
     //    for(int i = 0; i < N-1; ++i){
     //        dataarray[i].next = &dataarray[i+1];
     //        dataarray[i].next->prev = &dataarray[i];
@@ -87,7 +145,7 @@ public:
     //    head->prev = &dataarray[N-1];
     //    head->prev->data = data[N-1];
     //}
-    //void fill(std::array<ListType<T>, N> data){
+    //void fill(std::array<Node_t, N> data){
     //    for(int i = 0; i < N; ++i){
     //        dataarray[i].data = data[i];
     //    }
@@ -103,11 +161,29 @@ public:
     std::size_t size() const{
         return N;
     }
-    const ListType<T> * const getHead() const{
+    const Node_t * const getHead() const{
         return head;
     }
+    Iterator_t begin(){
+        return Iterator_t(head, true);
+    }
+    const Iterator_t begin() const{
+        return Iterator_t(head, true);
+    }
+    Iterator_t end(){
+        //return Iterator_t(head->prev);
+        return Iterator_t(head, false);
+    }
+    const Iterator_t end() const{
+        //return Iterator_t(head->prev);
+        return Iterator_t(head, false);
+    }
 private:
-    std::array<ListType<T>, N> dataarray;
-    //ListType<T> dataarray[N];
-    ListType<T> * head;
+    std::array<Node_t, N> dataarray;
+    //Node_t dataarray[N];
+    Node_t * head;
 };
+
+
+
+#endif // STATIC_RING_HPP

@@ -9,7 +9,7 @@
 #include <filesystem>
 #include <functional>
 #include <locale>
-#include "drawille.hpp"
+#include "drawille-plusplus/drawille.hpp"
 #include "StaticRing.hpp"
 #include <cstdio>
 #include <csignal>

@@ -3,7 +3,7 @@
 #include <string>
 #include <array>
 #include <locale>
-#include "drawille.hpp"
+#include "drawille-plusplus/drawille.hpp"
 #include <cstdio>
 
 template <typename T, size_t N>

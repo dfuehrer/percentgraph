@@ -25,6 +25,7 @@
 namespace fs = std::filesystem;
 
 std::pair<char, double> rescaleData(long data);
+std::string getCacheDir(std::string dirs);
 
 // TODO maybe convert this to be something you could just build and use as a dumber server that works for all situations with smarter clients
 //  right now this is able to work with simple dumb clients that talk to smart servers
@@ -221,6 +222,7 @@ private:
 
 };
 
+// TODO make an option to use data sizes (1024 instead of 1000)
 std::pair<char, double> rescaleData(long data){
     char scales[] = " kMGTPEZY";    // metric unit scales starting from 0
     double output = data;
@@ -232,6 +234,17 @@ std::pair<char, double> rescaleData(long data){
     return {scales[i], output};
 };
 
+std::string getCacheDir(std::string dirs){
+    std::string HOME = std::getenv("HOME");
+    std::string XDG_CACHE_HOME = std::getenv("XDG_CACHE_HOME");
+    if(XDG_CACHE_HOME == ""){
+        XDG_CACHE_HOME = HOME + "/.cache";
+    }
 
+    std::string cacheDir = XDG_CACHE_HOME + "/" + dirs;
+    fs::create_directories(cacheDir);
+
+    return cacheDir;
+}
 
 #endif  // PERCENT_GRAPH_SERVER

@@ -15,8 +15,11 @@
 #include <csignal>
 #include <cstring>
 //#include <cstdlib>
+#include <unistd.h>
 #include <sys/stat.h>
 //#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 
 #ifndef NUM_PERCENTS_STORED
 #define NUM_PERCENTS_STORED 8
@@ -56,17 +59,17 @@ public:
         //fifoOut = filebase + "fifoOutXXXXXX";
         //mktemp(fifoIn.data());
         //mktemp(fifoOut.data());
-        fifoIn  = filebase + "fifoIn";
-        fifoOut = filebase + "fifoOut";
+        socketName  = filebase + ".sock";
         // create the directory that these files are in and set the restricted deletion flag
         fs::path basedir = fs::path(filebase).remove_filename();
         fs::create_directory(basedir);
         fs::permissions(basedir, fs::perms::sticky_bit, fs::perm_options::add);
 
-        // make the fifo files for the client to connect to, read+write for user and nothing else
-        //  sure wouldn't want anyone else to know what cpu percentages are
-        mkfifo(fifoIn .c_str(), 04600);
-        mkfifo(fifoOut.c_str(), 04600);
+        // create the socket
+        std::memset(&socketAddr, 0, sizeof socketAddr);
+        socketAddr.sun_family = AF_UNIX;
+        std::strncpy(socketAddr.sun_path, socketName.c_str(), (sizeof socketAddr.sun_path) - 1);
+        connection_socket = socket(socketAddr.sun_family, SOCK_STREAM, 0);
     }
     PercentGraphServer(std::string filebase, const wchar_t unit=L'%'): PercentGraphServer(filebase, units){
         units.fill(unit);
@@ -149,62 +152,65 @@ public:
     }
     void runServer(){
         std::string inLine;
-        while(run){
-            // open fifo files
-            //fin.open(fifoIn);
-            std::ifstream fin(fifoIn);
-            //std::cerr << "just opened " << fifoIn << '\n';
-            //fout.open(fifoOut);
-            std::wofstream fout(fifoOut);
-            //std::cerr << "just opened " << fifoOut << '\n';
-            // get request from client
-            // TODO check the request
-            cleanExit = false;
-            if(std::getline(fin, inLine)){
-                // call func
-                onClientRequestFunc();
-                // send back the buffer
-                //std::wcout << L"sending " << buffer << L"\n";
-                fout << buffer << std::endl;
-                //std::cerr << "tried to send" << std::endl;
-                // try to get handshake
-                // TODO check the handshake
-                if(std::getline(fin, inLine)){
-                    cleanExit = true;
-                    //std::cerr << "got: " << inLine << std::endl;
-                }else{
-                    std::cerr << "got no handshake" << std::endl;
-                }
-            }
-            // close fifo files
-            fin.close();
-            fout.close();
+        ssize_t ret = bind(connection_socket, (const struct sockaddr *) &socketAddr, sizeof socketAddr);
+        if (ret == -1){
+            std::perror("bind socket");
+            cleanup();
+            std::exit(EXIT_FAILURE);
         }
+        // prepare for connections, set backlog size to 10
+        ret = listen(connection_socket, 10);
+        if (ret == -1){
+            std::perror("listen on socket");
+            cleanup();
+            std::exit(EXIT_FAILURE);
+        }
+        std::cerr << "ready for connections\n";
+        while(run){
+            cleanExit = false;
+            // open socket
+            // accepting socket connection good enough, dont need to recieve anything from client
+            int data_socket = accept(connection_socket, NULL, NULL);
+            if (data_socket == -1){
+                std::perror("accept on socket");
+                cleanup();
+                std::exit(EXIT_FAILURE);
+            }
+            // call func
+            onClientRequestFunc();
+            // send back the buffer
+            //std::wcout << L"sending " << buffer.c_str() << L"\n";
+            int bufsize = buffer.size();
+            ret = send(data_socket, &bufsize, sizeof bufsize, 0);
+            if (ret == -1){
+                std::perror("send size to client");
+                close(data_socket);
+                cleanup();
+                std::exit(EXIT_FAILURE);
+            }
+            ret = send(data_socket, buffer.c_str(), bufsize * sizeof (std::wstring::value_type), 0);
+            // close socket for this client
+            close(data_socket);
+        }
+        close(connection_socket);
     }
     void cleanup() {
-        // TODO delete the fifo files
-        std::cerr << "trying to clean up: removing fifo files" << std::endl;
-        fs::remove(fifoIn);
-        fs::remove(fifoOut);
+        std::cerr << "trying to clean up: removing socket " << socketName << std::endl;
+        fs::remove(socketName);
     }
     void stopRunning(){
         run = false;
-        // TODO i was hoping i could open the files and itd be ok but that doesnt work
         // maybe remove them here? that seems dumb but
 
-        //std::cerr << "want to open files to end this" << std::endl;
-        //std::ofstream fin(fifoIn);
-        //std::cerr << "just opened " << fifoIn  << " so i could close it\n";
-        //std::wifstream fout(fifoOut);
-        //std::cerr << "just opened " << fifoOut << " so i could close it\n";
-        //fin.close();
-        //fout.close();
+        shutdown(connection_socket, SHUT_RDWR);
+        close(connection_socket);
     }
 private:
     //static constexpr size_t percentsStored = 7;
     static constexpr size_t percentsStored = 8;
-    std::string fifoIn;
-    std::string fifoOut;
+    struct sockaddr_un socketAddr;
+    int connection_socket;
+    std::string socketName;
     //std::ifstream fin;
     //std::wofstream fout;
     std::array<stored_t, numSave> save;

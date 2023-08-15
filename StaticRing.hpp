@@ -62,61 +62,6 @@ struct ListIterator{
     bool isHead;
 };
 
-//template <typename T, std::size_t N>
-//class StaticList{
-//    public:
-//        StaticList():
-//            head(dataarray),
-//            tail(dataarray + N){
-//        }
-//        void move(ListType<T> * current, ListType<T> * desired){
-//            if(current == desired)
-//                return;
-//            if(desired != nullptr){
-//                pop(current);
-//                insert(current, desired);
-//            }
-//        }
-//    private:
-//        //std::array<ListType<T>, N> dataarray;
-//        ListType<T> dataarray[N];
-//        T * head;
-//        T * tail;
-//
-//        void insert(ListType<T> * current, ListType<T> * desired){
-//            current->next = desired;
-//            current->prev = desired->prev;
-//            desired->prev->next = current;
-//            desired->prev = current;
-//        }
-//        ListType<T> * const pop(const ListType<T> * const current){
-//            if(current->prev)
-//                current->prev->next = current->next;
-//            else
-//                head = current->next;
-//            if(current->next)
-//                current->next->prev = current->prev;
-//            else
-//                tail = current->prev;
-//            return current;
-//        }
-//        ListType<T> * const popForward(const ListType<T> ** const current_ptr){
-//            //current->prev->next = current->next;
-//            //current->next->prev = current->prev;
-//            ListType<T> * current = *current_ptr;
-//            *current_ptr = (*current_ptr)->next;
-//            (*current_ptr)->prev = current->prev;
-//            return current;
-//        }
-//        ListType<T> * const popBackward(const ListType<T> ** const current_ptr){
-//            //current->prev->next = current->next;
-//            //current->next->prev = current->prev;
-//            ListType<T> * current = *current_ptr;
-//            *current_ptr = (*current_ptr)->prev;
-//            (*current_ptr)->next = current->next;
-//            return current;
-//        }
-//};
 
 template <typename T, std::size_t N>
 class StaticRing{

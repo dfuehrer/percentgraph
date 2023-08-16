@@ -60,6 +60,7 @@ fn truncateFloatDigits(data: f64, num_digits: u10) f64 {
 pub fn getCacheDir(allocator: std.mem.Allocator, dir: []const u8) !std.ArrayList(u8) {
     var cache_dir = std.ArrayList(u8).init(allocator);
     // TODO maybe just move to a scheme using std.fs.getAppDataDir
+    //  - or some tmp dir
     if (std.os.getenv("XDG_CACHE_HOME")) |XDG_CACHE_HOME| {
         const homecache_size = XDG_CACHE_HOME.len + 1 + dir.len;
         try cache_dir.ensureTotalCapacity(homecache_size);
@@ -94,7 +95,7 @@ pub fn PercentGraphServer(comptime T: type, comptime num_save: comptime_int, com
         units: [num_percents]code_t,
         delimeters: [num_percents]code_t = [_]code_t{' '} ** num_percents,
         percents: StaticRing([num_graphs]percent_t, perc_stored),
-        // TODO consider making its size confugurable, perce_stored isnt configurable and this height is hard coded
+        // TODO consider making its size confugurable, perc_stored isnt configurable and this height is hard coded
         canvas: Drawille.StaticCanvas(perc_stored, Drawille.y_per_block) = .{},
         //buffer: std.ArrayList(u8),
         //_raw_buffer: [buff_size]u8 = undefined,
@@ -105,8 +106,12 @@ pub fn PercentGraphServer(comptime T: type, comptime num_save: comptime_int, com
         const Self = @This();
         pub const percent_t = u32;
         pub const stored_t = T;
-        // TODO consider passing self into the function
-        pub const client_request_func_t = *const fn (*Self) void;
+        // TODO figure out other errors that could happen in the client request func
+        pub const ClientRequestErrors = error{
+            FileError,
+            ReadError,
+        };
+        pub const client_request_func_t = *const fn (*Self) ClientRequestErrors!void;
         pub const num_graph_perc = num_graphs;
         pub const num_print_perc = num_percents;
         pub const num_saved = num_save;
@@ -114,10 +119,11 @@ pub fn PercentGraphServer(comptime T: type, comptime num_save: comptime_int, com
         // from the utf-8 man page: "* UTF-8  encoded  UCS  characters  may  be  up  to six bytes long, however the Unicode standard specifies no characters above"
         //const bytes_per_unicode = 6;
         const bytes_per_unicode = 4;
+        const digit_chars_per_num = 4;
         //const buff_size = perc_stored / 2 + (1 + 4 + 1 + 1) * num_percents + 1;
         // + (1 delim + 4 digits of num (usually with .) + 1 unit size modifier (k,M,G,...) + 1 unit) per percent to print
         // + 1 null character for good measure
-        const buff_size = (perc_stored * bytes_per_unicode) / Drawille.x_per_block + (1 * bytes_per_unicode + 4 + 1 + 1 * bytes_per_unicode) * num_percents + 1;
+        const buff_size = (perc_stored * bytes_per_unicode) / Drawille.x_per_block + (1 * bytes_per_unicode + digit_chars_per_num + 1 + 1 * bytes_per_unicode) * num_percents + 1;
 
         pub fn init(filebase: []u8) !Self {
             return Self.initUnits(filebase, [_]code_t{'%'} ** num_percents);
@@ -131,23 +137,16 @@ pub fn PercentGraphServer(comptime T: type, comptime num_save: comptime_int, com
                 .connection_socket = undefined,
                 .save = undefined,
                 .units = undefined,
-                //.buffer = undefined,
                 .percents = .{
                     ._dataarray = [_][num_graphs]percent_t{[_]percent_t{0} ** num_graphs} ** perc_stored,
                 },
-                //._alloc = undefined,
             };
             if (units.len != num_percents) {
                 return error.WrongSize;
             }
-            //// TODO do i need to attache this to the struct as well?
-            //var fba = std.heap.FixedBufferAllocator.init(&self._raw_buffer);
-            //self._alloc = fba.allocator();
-            //self.buffer = try @TypeOf(self.buffer).initCapacity(self._alloc, buff_size);
             std.mem.copy(code_t, &self.units, &units);
 
-            // TODO secure the creation of this socket:
-            //  - chmod it before touching the fs
+            // chmod socket fd before binding it to the fs so it can't ever be touched without perms
             @memset(&self.socket_addr.path, '\x00', @sizeOf(@TypeOf(self.socket_addr.path)));
             std.mem.copy(u8, self.socket_addr.path[0..], filebase);
             std.mem.copy(u8, self.socket_addr.path[filebase.len..], ".sock");
@@ -167,10 +166,10 @@ pub fn PercentGraphServer(comptime T: type, comptime num_save: comptime_int, com
         pub fn getDatas(self: *const Self) *const [num_save]stored_t {
             return &self.save;
         }
+        // TODO return error when necessary and only `catch unreachable` when something should be guarenteed impossible to fail based on things known at compile time
         pub fn setPercents(self: *Self, cur_graphs: [num_graphs]percent_t, cur_percents: []const stored_t) void {
             // TODO maybe make the cur_percents not the same type as stored_t
             self.percents.setHead(cur_graphs);
-            // TODO make this size configurable
             var percent_iter = self.percents.iterator();
             var i: u32 = 0;
             self.canvas.clear();
@@ -184,40 +183,26 @@ pub fn PercentGraphServer(comptime T: type, comptime num_save: comptime_int, com
                 i += 1;
             }
             std.debug.assert(cur_percents.len == num_print_perc);
-            //self.buffer.clearRetainingCapacity();
-            //const buff_writer = self.buffer.writer();
             var bufstream = std.io.fixedBufferStream(&self.buffer);
             const buff_writer = bufstream.writer();
-            //self.canvas.writeUnicode(buff_writer);
-            //buff_writer.print("{}", .{self.canvas});
             self.canvas.draw(buff_writer) catch unreachable;
             for (self.units) |unit, ind| {
                 switch (unit) {
+                    // TODO replace 4 with digit_chars_per_num
                     @as(code_t, '%') => buff_writer.print("{u}{:4}%", .{ self.delimeters[ind], cur_percents[ind] }) catch unreachable,
                     else => {
-                        //const scale = comptime switch (unit) {
-                        //    @as(code_t, 'b'), @as(code_t, 'B') => 1 << 10,
-                        //    else => 1000,
-                        //};
-                        //const scaled = rescaleDataSize(cur_percents[ind], scale);
                         const scaled = switch (unit) {
                             @as(code_t, 'b'), @as(code_t, 'B') => rescaleDataBin(cur_percents[ind]),
                             else => rescaleDataMetric(cur_percents[ind]),
                         };
-                        //const trunc = truncateFloatDigits(scaled.data, 3);
-                        var tmp_buf: [4]u8 = undefined;
+                        const trunc = truncateFloatDigits(scaled.data, 3);
+                        var tmp_buf: [digit_chars_per_num]u8 = undefined;
                         var tmp_bufstream = std.io.fixedBufferStream(&tmp_buf);
                         const tmp_buff_writer = tmp_bufstream.writer();
-                        //std.fmt.formatFloatDecimal(trunc, .{}, tmp_buff_writer) catch {};
-                        std.fmt.formatFloatDecimal(scaled.data, .{}, tmp_buff_writer) catch {};
-                        //buff_writer.print("{u}{d:4}{c}{u}", .{ self.delimeters[ind], trunc, scaled.scale, unit }) catch unreachable;
-                        buff_writer.print("{u}{s}{c}{u}", .{ self.delimeters[ind], tmp_buf, scaled.scale, unit }) catch unreachable;
-                        //std.debug.print("trunc {} = {d:4} ({s})\n", .{ scaled.data, trunc, tmp_buf });
-                        ////buff_writer.print("{u}", .{ self.delimeters[ind] }) catch unreachable;
-                        //std.fmt.formatUnicodeCodepoint(self.delimeters[ind], .{}, buff_writer) catch unreachable;
-                        //const precision: usize = if (scaled.data < 10) 2 else if (scaled.data < 100) 1 else 0;
-                        //std.fmt.formatFloatDecimal(scaled.data, .{ .precision = precision }, buff_writer) catch unreachable;
-                        //buff_writer.print("{c}{u}", .{ scaled.scale, unit }) catch unreachable;
+                        // intentionally throw away error: doing this to force the float to be at most 4 chars
+                        std.fmt.formatFloatDecimal(trunc, .{}, tmp_buff_writer) catch {};
+                        //std.fmt.formatFloatDecimal(scaled.data, .{}, tmp_buff_writer) catch {};
+                        buff_writer.print("{u}{s:4}{c}{u}", .{ self.delimeters[ind], tmp_buff_writer.context.getWritten(), scaled.scale, unit }) catch unreachable;
                     },
                 }
             }
@@ -238,7 +223,7 @@ pub fn PercentGraphServer(comptime T: type, comptime num_save: comptime_int, com
             try self.secureBindSocket();
             // TODO how big should the backlog be?
             try std.os.listen(self.connection_socket, 50);
-            std.debug.print("ready for connections!\n", .{});
+            //std.debug.print("ready for connections!\n", .{});
             const max_errors = 5;
             var num_errors: u8 = 0;
             while (self.run) {
@@ -248,25 +233,28 @@ pub fn PercentGraphServer(comptime T: type, comptime num_save: comptime_int, com
                 //      - to that note, should have some div by 0 things handled
                 //      - also should consider a minimum time before calculating new, otherwise it would just return the existing answer
                 //      - also should consider using some buffer of data instead of always calculating from the last point to smooth things out a little, even if the update rate is high
-                const data_socket = std.os.accept(self.connection_socket, null, null, 0) catch |err| {
-                    num_errors += 1;
-                    if (num_errors < max_errors) {
-                        std.debug.print("got error #{} accepting connection ({}), will try again\n", .{ num_errors, err });
-                        std.time.sleep(@as(u64, num_errors) * 1000000000);
-                        continue;
-                    } else {
-                        std.debug.print("failed to connect {} times..\n", .{num_errors});
-                        return err;
-                    }
+                const data_socket = std.os.accept(self.connection_socket, null, null, 0) catch |err| switch (err) {
+                    // continue on socket not listening because that is what should happen when we shut it down, so we should try to exit cleanly
+                    error.SocketNotListening => continue,
+                    // pretty sure the rest of the errors really shouldn't happen, so follow the error handling scheme
+                    else => {
+                        num_errors += 1;
+                        if (num_errors < max_errors) {
+                            std.debug.print("got error #{} accepting connection ({}), will try again\n", .{ num_errors, err });
+                            std.time.sleep(@as(u64, num_errors) * 1000000000);
+                            continue;
+                        } else {
+                            std.debug.print("failed to connect {} times..\n", .{num_errors});
+                            return err;
+                        }
+                    },
                 };
                 // close the socket anytime we exit this loop scope
                 defer std.os.close(data_socket);
                 // run server stuff
-                on_client_request_func(self);
-                //std.debug.print("len: {}\n", .{self.buffer.items.len});
-                //const buffsize = @truncate(u32, self.buffer.items.len);
+                try on_client_request_func(self);
                 const buffsize = self.send_len;
-                _ = std.os.send(data_socket, std.mem.sliceAsBytes(@ptrCast(*const [1]@TypeOf(buffsize), &buffsize)), 0) catch |err| switch (err) {
+                _ = std.os.send(data_socket, std.mem.asBytes(&buffsize), 0) catch |err| switch (err) {
                     // TODO figure out what other errors might be in this category of errors to just move on from instead of dying
                     error.SystemResources, error.BrokenPipe => {
                         std.debug.print("could not send to client: {}\n", .{err});
@@ -276,7 +264,6 @@ pub fn PercentGraphServer(comptime T: type, comptime num_save: comptime_int, com
                 };
                 // TODO figure out how to do this error handling the same as the last case without copying it like i did here
                 //  - maybe just save the output value and try sending again and see if either is an error?
-                //_ = std.os.send(data_socket, self.buffer.items, 0) catch |err| switch (err) {
                 _ = std.os.send(data_socket, self.buffer[0..self.send_len], 0) catch |err| switch (err) {
                     // TODO figure out what other errors might be in this category of errors to just move on from instead of dying
                     error.SystemResources, error.BrokenPipe => {
@@ -311,44 +298,50 @@ pub fn PercentGraphServer(comptime T: type, comptime num_save: comptime_int, com
             };
             //  3. bind socket
             try std.os.bind(self.connection_socket, @ptrCast(*const std.os.sockaddr, &self.socket_addr), @sizeOf(@TypeOf(self.socket_addr)));
-            //  4. chmod socket path
-            {
-                std.debug.print("trying to chmod '{s}'\n", .{@ptrCast([*:0]const u8, &self.socket_addr.path)});
-                const maybe_sockfile = std.fs.openFileAbsoluteZ(@ptrCast([*:0]const u8, &self.socket_addr.path), .{ .mode = std.fs.File.OpenMode.read_only }) catch |err| blk: {
-                    std.debug.print("error opening socket to chmod: {}\n", .{err});
-                    break :blk null;
-                };
-                if (maybe_sockfile) |sockfile| {
-                    defer sockfile.close();
-                    try sockfile.chmod(S.IRUSR | S.IWUSR);
-                }
-                //const O_PATH = 0o10000000;
-                //const sockfd = try std.os.openZ(@ptrCast([*:0]const u8, &self.socket_addr.path), O_PATH, std.os.O.RDONLY);
-                //defer std.os.close(sockfd);
-                //try std.os.fchmod(sockfd, S.IRUSR | S.IWUSR);
-            }
+            // TODO figure out how to chmod the socket path since they have no function to chmod a path without opening it
+            ////  4. chmod socket path
+            //{
+            //    std.debug.print("trying to chmod '{s}'\n", .{@ptrCast([*:0]const u8, &self.socket_addr.path)});
+            //    const maybe_sockfile = std.fs.openFileAbsoluteZ(@ptrCast([*:0]const u8, &self.socket_addr.path), .{ .mode = std.fs.File.OpenMode.read_only }) catch |err| blk: {
+            //        std.debug.print("error opening socket to chmod: {}\n", .{err});
+            //        break :blk null;
+            //    };
+            //    if (maybe_sockfile) |sockfile| {
+            //        defer sockfile.close();
+            //        try sockfile.chmod(S.IRUSR | S.IWUSR);
+            //    }
+            //    //const O_PATH = 0o10000000;
+            //    //const sockfd = try std.os.openZ(@ptrCast([*:0]const u8, &self.socket_addr.path), O_PATH, std.os.O.RDONLY);
+            //    //defer std.os.close(sockfd);
+            //    //try std.os.fchmod(sockfd, S.IRUSR | S.IWUSR);
+            //}
         }
         pub fn cleanup(self: *const Self) !void {
-            std.debug.print("trying to clean up: removing socket {s}\n", .{@ptrCast([*:0]const u8, &self.socket_addr.path)});
-            try std.os.unlinkZ(@ptrCast([*:0]const u8, &self.socket_addr.path));
+            //std.debug.print("trying to clean up: removing socket {s}\n", .{@ptrCast([*:0]const u8, &self.socket_addr.path)});
+            std.os.unlinkZ(@ptrCast([*:0]const u8, &self.socket_addr.path)) catch |err| {
+                std.debug.print("error cleaning up: removing socket {s} failed: {}\n", .{ std.mem.sliceTo(&self.socket_addr.path, '\x00'), err });
+                return err;
+            };
         }
         pub fn stopRunning(self: *Self) void {
             self.run = false;
-            // try shutting it down, not sure if this is helpful in any way, dont bother if it errors so we can get to trying to close the socket
-            std.os.shutdown(self.connection_socket, std.os.ShutdownHow.both) catch |err|
-                std.debug.print("error shutting down socket: {}\n", .{err});
-            std.os.close(self.connection_socket);
-        }
-        pub fn handleSignal(self: Self) std.meta.FnPtr(fn (c_int) align(1) callconv(.C) void) {
-            const ctx = struct {
-                pub fn sigHandler(signal: c_int) align(1) callconv(.C) void {
-                    self.stopRunning();
-                    self.cleanup();
-                    std.os.sigaction(@as(u6, signal), std.os.SIG.DFL, null);
-                }
+            // try to shutdown the socket to be able to exit cleanly
+            // - if that fails then just close the socket
+            std.os.shutdown(self.connection_socket, std.os.ShutdownHow.both) catch |err| {
+                std.debug.print("error shutting down socket: {}, closing..\n", .{err});
+                std.os.close(self.connection_socket);
             };
-            return ctx.sigHandler;
         }
+        //pub fn handleSignal(self: Self) std.meta.FnPtr(fn (c_int) align(1) callconv(.C) void) {
+        //    const ctx = struct {
+        //        pub fn sigHandler(signal: c_int) align(1) callconv(.C) void {
+        //            self.stopRunning();
+        //            self.cleanup();
+        //            std.os.sigaction(@as(u6, signal), std.os.SIG.DFL, null);
+        //        }
+        //    };
+        //    return ctx.sigHandler;
+        //}
     };
 }
 
@@ -375,7 +368,7 @@ test "comptime for" {
 }
 
 const test_server_t = PercentGraphServer(u32, 1, 2, 2);
-fn runTestServer(server: *test_server_t) void {
+fn runTestServer(server: *test_server_t) test_server_t.ClientRequestErrors!void {
     std.debug.print("running\n", .{});
     const extent = 3 * 2 * std.math.pi / 2.0;
     const incr = std.math.pi / 8.0;

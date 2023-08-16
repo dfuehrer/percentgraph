@@ -100,7 +100,7 @@ public:
         int i = 0;
         for(std::array<percent_t, numGraphs> percent_arr: percents){
             for(percent_t percent: percent_arr){
-                canvas.set(6 - i, 3 - percent / 25);
+                canvas.set(7 - i, 3 - percent / 25);
             }
             ++i;
         }

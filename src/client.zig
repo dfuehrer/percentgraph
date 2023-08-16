@@ -16,13 +16,13 @@ pub fn main() !void {
     std.mem.copy(u8, &socket_addr.path, socketname);
     const data_socket = try std.os.socket(socket_addr.family, std.os.SOCK.STREAM, 0);
     defer std.os.close(data_socket);
+    // TODO catch specific errors and return some error value that preferably doesn't do a traceback
     try std.os.connect(data_socket, @ptrCast(*std.os.sockaddr, &socket_addr), @sizeOf(@TypeOf(socket_addr)));
 
-    var linelen_in: u32 = undefined;
+    var linelen: u32 = undefined;
     //_ = try std.os.recv(data_socket, @ptrCast([*]u8, &linelen_in)[0..@sizeOf(@TypeOf(linelen_in))], 0);
-    _ = try std.os.recv(data_socket, std.mem.sliceAsBytes(@ptrCast(*[1]@TypeOf(linelen_in), &linelen_in)), 0);
-    std.debug.assert(linelen_in > 0);
-    const linelen = @intCast(u32, linelen_in);
+    _ = try std.os.recv(data_socket, std.mem.asBytes(&linelen), 0);
+    std.debug.assert(linelen > 0);
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const alloc = arena.allocator();

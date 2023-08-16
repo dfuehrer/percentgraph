@@ -20,7 +20,8 @@ pub fn main() !void {
     try std.os.connect(data_socket, @ptrCast(*std.os.sockaddr, &socket_addr), @sizeOf(@TypeOf(socket_addr)));
 
     var linelen_in: c_int = undefined;
-    _ = try std.os.recv(data_socket, @ptrCast([*]u8, &linelen_in)[0..@sizeOf(@TypeOf(linelen_in))], 0);
+    //_ = try std.os.recv(data_socket, @ptrCast([*]u8, &linelen_in)[0..@sizeOf(@TypeOf(linelen_in))], 0);
+    _ = try std.os.recv(data_socket, std.mem.asBytes(&linelen_in), 0);
     std.debug.assert(linelen_in > 0);
     const linelen = @intCast(u32, linelen_in);
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
